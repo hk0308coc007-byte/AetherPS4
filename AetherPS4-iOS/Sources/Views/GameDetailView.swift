@@ -73,7 +73,7 @@ struct GameDetailView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("GOW III compatibility profile")
                                 .font(.subheadline.weight(.semibold))
-                            Text("Uses a lower render resolution, extra emulator memory, upscaling and shader caching.")
+                            Text("Starts at 720p; starts at 540p if iPadOS reports serious heat. Uses upscaling and pipeline caching.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -189,6 +189,11 @@ struct GameDetailView: View {
     private func launch() {
         launchError = nil
 
+        if isGodOfWarIIIRemastered && ProcessInfo.processInfo.thermalState == .critical {
+            launchError = "iPadOS reports critical thermal pressure. Let the iPad cool before launching GOW III."
+            return
+        }
+
         if isGodOfWarIIIRemastered {
             guard let titleId = game.titleId else {
                 launchError = "The game title ID could not be read, so the GOW III profile was not applied."
@@ -282,8 +287,21 @@ private enum GOW3LowLoadProfile {
         root["General"] = general
 
         var gpu = root["GPU"] as? [String: Any] ?? [:]
-        gpu["internal_screen_width"] = 1280
-        gpu["internal_screen_height"] = 720
+        // Use the lower 540p starting resolution when iPadOS already reports serious thermal
+        // pressure. This is sampled at launch; the emulator cannot change the running game's
+        // render targets dynamically, so it is a conservative startup choice rather than a
+        // guarantee against heat-related throttling later in the session.
+        let launchResolution: (width: Int, height: Int)
+        switch ProcessInfo.processInfo.thermalState {
+        case .serious, .critical:
+            launchResolution = (960, 540)
+        case .nominal, .fair, .unknown:
+            launchResolution = (1280, 720)
+        @unknown default:
+            launchResolution = (1280, 720)
+        }
+        gpu["internal_screen_width"] = launchResolution.width
+        gpu["internal_screen_height"] = launchResolution.height
         gpu["vblank_frequency"] = 60
         gpu["fsr_enabled"] = true
         gpu["rcas_enabled"] = true
