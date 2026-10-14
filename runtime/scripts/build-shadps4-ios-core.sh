@@ -59,6 +59,16 @@ bash "${PROJECT_ROOT}/runtime/scripts/build-fexcore-ios.sh"
 
 # Work around known modern Apple SDK header/compiler quirks within this build only.
 IOS_COMPAT_FLAGS='-include float.h -D__SWIFT_ATTR_SUPPORTS_SENDABLE_DECLS=1 -D__OBJC2__=1 -Wno-elaborated-enum-base'
+
+# The iOS cross-compile cannot execute a target-built ImGui font generator.
+# Build that small utility for the macOS runner and pass it to the renderer's
+# CMake configuration, which uses it to generate the embedded font sources.
+FONT_EMBED_SOURCE="${PROJECT_ROOT}/externals/dear_imgui/misc/fonts/binary_to_compressed_c.cpp"
+FONT_EMBED_EXECUTABLE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/imgui_font_embed"
+HOST_CLANGXX="$(xcrun --sdk macosx -f clang++)"
+[[ -f "${FONT_EMBED_SOURCE}" ]] || { echo "error: ImGui font embed source missing: ${FONT_EMBED_SOURCE}" >&2; exit 1; }
+"${HOST_CLANGXX}" -std=c++11 -O2 "${FONT_EMBED_SOURCE}" -o "${FONT_EMBED_EXECUTABLE}"
+chmod +x "${FONT_EMBED_EXECUTABLE}"
 rm -rf "${CORE_BUILD_DIR}"
 cmake -S "${PROJECT_ROOT}" -B "${CORE_BUILD_DIR}" -G Ninja \
   -DCMAKE_SYSTEM_NAME=iOS \
@@ -85,7 +95,8 @@ cmake -S "${PROJECT_ROOT}" -B "${CORE_BUILD_DIR}" -G Ninja \
   -DENABLE_UPDATER=OFF \
   -DENABLE_BACHATA_RUNTIME=OFF \
   -DENABLE_SYSTEM_LIBRARIES=OFF \
-  -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+  -DIMGUI_FONT_EMBED_EXECUTABLE="${FONT_EMBED_EXECUTABLE}"
 
 cmake --build "${CORE_BUILD_DIR}" --target shadps4_ios --parallel 3
 
