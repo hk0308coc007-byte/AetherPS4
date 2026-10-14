@@ -43,6 +43,31 @@ cp "${HISTORICAL_CMAKE}" "${PROJECT_ROOT}/CMakeLists.txt"
 # Initialize all direct and nested dependencies used by the core.
 git -C "${PROJECT_ROOT}" submodule update --init --recursive
 
+# iOS marks system() unavailable. Keep desktop behavior unchanged and
+# exclude shell-based directory creation from the iOS build.
+PROJECT_ROOT="${PROJECT_ROOT}" python3 - <<'IMFD_PATCH'
+from pathlib import Path
+import os
+
+p = Path(os.environ["PROJECT_ROOT"]) / "externals/ImGuiFileDialog/ImGuiFileDialog.cpp"
+s = p.read_text()
+
+include_marker = '#include "imgui.h"'
+platform_guard = '#if defined(__APPLE__)\n#include <TargetConditionals.h>\n#define IGFD_TARGET_IOS TARGET_OS_IPHONE\n#else\n#define IGFD_TARGET_IOS 0\n#endif\n\n'
+
+assert s.count(include_marker) == 1, "ImGui include marker mismatch"
+assert "IGFD_TARGET_IOS" not in s, "iOS guard already present"
+s = s.replace(include_marker, platform_guard + include_marker, 1)
+
+old = '#elif defined(_IGFD_UNIX_)\n                char buffer[PATH_MAX] = {};\n                snprintf(buffer, PATH_MAX, "mkdir -p \\"%s\\"", vName.c_str());\n                const int dir_err = std::system(buffer);\n                if (dir_err != -1) {\n                    res = true;\n                }\n'
+new = '#elif defined(_IGFD_UNIX_) && !IGFD_TARGET_IOS\n                char buffer[PATH_MAX] = {};\n                snprintf(buffer, PATH_MAX, "mkdir -p \\"%s\\"", vName.c_str());\n                const int dir_err = std::system(buffer);\n                if (dir_err != -1) {\n                    res = true;\n                }\n'
+
+count = s.count(old)
+assert count == 2, f"Expected two shell branches, found {count}"
+p.write_text(s.replace(old, new))
+print("Applied iOS-only guard to both ImGuiFileDialog branches.")
+IMFD_PATCH
+
 IOS_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 IOS_SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
 IOS_CLANG="$(xcrun --sdk iphoneos -f clang)"
