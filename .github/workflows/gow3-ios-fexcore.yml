@@ -1,0 +1,45 @@
+name: GOW III iOS FEXCore ARM64 build stage
+
+on:
+  push:
+    branches:
+      - gow3-compatibility
+    paths:
+      - '.github/workflows/gow3-ios-fexcore.yml'
+      - 'runtime/scripts/build-fexcore-ios.sh'
+      - 'runtime/sources/fexcore-darwin/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-fexcore-ios:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Check Apple build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          command -v cmake || brew install cmake
+          command -v ninja || brew install ninja
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Build FEXCore and its iOS ARM64 static dependencies
+        shell: bash
+        run: bash runtime/scripts/build-fexcore-ios.sh
+
+      - name: Upload FEXCore iOS ARM64 static libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: AetherPS4-FEXCore-iOS-arm64
+          path: runtime/build/fexcore-ios-stage/fexcore-ios-libs/*
+          if-no-files-found: error
+          retention-days: 7
