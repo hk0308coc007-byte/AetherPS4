@@ -22,7 +22,7 @@ done
 # from the repository snapshot. These paths are expected to be present in-tree.
 for rel in \
   External/fmt/CMakeLists.txt \
-  External/xxhash/CMakeLists.txt \
+  External/xxhash/cmake_unofficial/CMakeLists.txt \
   External/rpmalloc/CMakeLists.txt \
   External/unordered_dense/CMakeLists.txt \
   External/tiny-json/CMakeLists.txt \
