@@ -65,9 +65,12 @@ IOS_COMPAT_FLAGS='-include float.h -D__SWIFT_ATTR_SUPPORTS_SENDABLE_DECLS=1 -D__
 # CMake configuration, which uses it to generate the embedded font sources.
 FONT_EMBED_SOURCE="${PROJECT_ROOT}/externals/dear_imgui/misc/fonts/binary_to_compressed_c.cpp"
 FONT_EMBED_EXECUTABLE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/imgui_font_embed"
+MACOS_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 HOST_CLANGXX="$(xcrun --sdk macosx -f clang++)"
 [[ -f "${FONT_EMBED_SOURCE}" ]] || { echo "error: ImGui font embed source missing: ${FONT_EMBED_SOURCE}" >&2; exit 1; }
-"${HOST_CLANGXX}" -std=c++11 -O2 "${FONT_EMBED_SOURCE}" -o "${FONT_EMBED_EXECUTABLE}"
+# GitHub runners may export SDKROOT for a non-macOS SDK. Clear it and explicitly
+# select the macOS SDK so the native helper can find headers such as stdio.h.
+env -u SDKROOT "${HOST_CLANGXX}" -isysroot "${MACOS_SDK}" -std=c++11 -O2 "${FONT_EMBED_SOURCE}" -o "${FONT_EMBED_EXECUTABLE}"
 chmod +x "${FONT_EMBED_EXECUTABLE}"
 rm -rf "${CORE_BUILD_DIR}"
 cmake -S "${PROJECT_ROOT}" -B "${CORE_BUILD_DIR}" -G Ninja \
