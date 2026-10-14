@@ -1,0 +1,126 @@
+name: GOW III iOS build preflight
+
+on:
+  push:
+    branches:
+      - gow3-compatibility
+    paths:
+      - '.github/workflows/gow3-ios-preflight.yml'
+      - 'AetherPS4-iOS/**'
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - 'externals/**'
+      - 'generate_project.rb'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: macos-15
+    timeout-minutes: 15
+    outputs:
+      core_ready: ${{ steps.audit.outputs.core_ready }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Inspect macOS and Xcode
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Parse modified Swift source
+        run: |
+          set -euo pipefail
+          swiftc -frontend -parse AetherPS4-iOS/Sources/Views/GameDetailView.swift
+          echo "Swift syntax parse passed."
+
+      - name: Audit iOS build prerequisites
+        id: audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import subprocess
+
+          root = Path.cwd()
+          project = root / "AetherPS4-iOS/AetherPS4-iOS.xcodeproj/project.pbxproj"
+          frameworks = root / "AetherPS4-iOS/Frameworks"
+          core = root / "runtime/build/shadps4-ios"
+          script = root / "runtime/scripts/build-ipa.sh"
+
+          print("== iOS build prerequisite audit ==")
+          print(f"Xcode project exists: {project.is_file()}")
+          print(f"IPA packaging script exists: {script.is_file()}")
+          print(f"Core build directory exists: {core.is_dir()}")
+
+          if frameworks.is_dir():
+              print("Bundled Frameworks entries:")
+              for item in sorted(frameworks.iterdir()):
+                  print(f"  {item.name} ({'directory' if item.is_dir() else 'file'})")
+          else:
+              print("Bundled Frameworks directory is missing.")
+
+          project_text = project.read_text(errors="replace") if project.is_file() else ""
+          referenced_archives = sorted(set(re.findall(r'path = "([^"]+\.a)"', project_text)))
+          missing = []
+          for ref in referenced_archives:
+              candidate = (root / "AetherPS4-iOS" / ref).resolve()
+              if not candidate.exists():
+                  missing.append(ref)
+
+          print(f"Static libraries referenced by Xcode project: {len(referenced_archives)}")
+          print(f"Referenced static libraries currently missing: {len(missing)}")
+          for item in missing[:25]:
+              print(f"  MISSING: {item}")
+          if len(missing) > 25:
+              print(f"  ... plus {len(missing) - 25} more")
+
+          absolute_source_paths = re.findall(r'"/Users/[^\"]+"', project_text)
+          print(f"Hard-coded /Users/... paths in Xcode project: {len(absolute_source_paths)}")
+          if absolute_source_paths:
+              print("The project may need its generated header/library search paths made portable.")
+
+          status = subprocess.run(
+              ["git", "submodule", "status", "--recursive"],
+              text=True, capture_output=True, check=False
+          )
+          lines = status.stdout.splitlines()
+          uninitialized = [line for line in lines if line.startswith("-")]
+          print(f"Submodule entries: {len(lines)}; uninitialized in this checkout: {len(uninitialized)}")
+          print("Submodules are intentionally not downloaded in this preflight to keep the first run small.")
+
+          ready = project.is_file() and script.is_file() and core.is_dir() and not missing
+          print(f"Core libraries present enough to attempt IPA packaging: {ready}")
+          with open(".core-ready", "w") as f:
+              f.write("true" if ready else "false")
+          PY
+          ready=$(cat .core-ready)
+          echo "core_ready=$ready" >> "$GITHUB_OUTPUT"
+          if [[ "$ready" != "true" ]]; then
+            echo "::warning::iOS core libraries are not ready. This run will report prerequisites but will not attempt an IPA build."
+          fi
+
+      - name: Build and package unsigned IPA when prerequisites exist
+        if: steps.audit.outputs.core_ready == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/aetherps4-output"
+          bash runtime/scripts/build-ipa.sh "$RUNNER_TEMP/aetherps4-output"
+
+      - name: Upload IPA artifact
+        if: steps.audit.outputs.core_ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AetherPS4-GOW3-unsigned-IPA
+          path: ${{ runner.temp }}/aetherps4-output/*.ipa
+          if-no-files-found: error
+          retention-days: 7
