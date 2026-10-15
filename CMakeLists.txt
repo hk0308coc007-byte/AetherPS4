@@ -249,7 +249,12 @@ endif()
 
 # hwinfo
 set(HWINFO_STATIC ON)
+if (CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(HWINFO_BATTERY OFF CACHE BOOL "Disable unsupported iOS battery telemetry" FORCE)
+endif()
 add_subdirectory(hwinfo)
+
+
 
 if (APPLE OR ${CMAKE_SYSTEM_NAME} STREQUAL "FreeBSD")
     # date
