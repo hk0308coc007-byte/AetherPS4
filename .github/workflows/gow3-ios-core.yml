@@ -9,6 +9,7 @@ on:
       - 'runtime/scripts/build-shadps4-ios-core.sh'
       - 'runtime/scripts/build-fexcore-ios.sh'
       - 'runtime/sources/fexcore-darwin/**'
+      - 'CMakeLists.txt'
       - 'src/**'
       - 'externals/**'
       - 'AetherPS4-iOS/**'
