@@ -24,6 +24,7 @@ done
 # Use it only for this ephemeral CI job, restoring the tracked file on every exit.
 HISTORICAL_CMAKE="$(mktemp)"
 ORIGINAL_CMAKE="$(mktemp)"
+ORIGINAL_EXTERNALS_CMAKE="$(mktemp)"
 if ! git show "${HISTORICAL_CMAKE_COMMIT}:CMakeLists.txt" > "${HISTORICAL_CMAKE}"; then
   echo "error: unable to retrieve the known shadPS4 core CMake definition" >&2
   exit 1
@@ -33,12 +34,35 @@ grep -Fq 'add_library(shadps4_ios STATIC' "${HISTORICAL_CMAKE}" || {
   exit 1
 }
 cp "${PROJECT_ROOT}/CMakeLists.txt" "${ORIGINAL_CMAKE}"
+cp "${PROJECT_ROOT}/externals/CMakeLists.txt" "${ORIGINAL_EXTERNALS_CMAKE}"
 restore_root_cmake() {
   cp "${ORIGINAL_CMAKE}" "${PROJECT_ROOT}/CMakeLists.txt"
-  rm -f "${ORIGINAL_CMAKE}" "${HISTORICAL_CMAKE}"
+  cp "${ORIGINAL_EXTERNALS_CMAKE}" "${PROJECT_ROOT}/externals/CMakeLists.txt"
+  rm -f "${ORIGINAL_CMAKE}" "${ORIGINAL_EXTERNALS_CMAKE}" "${HISTORICAL_CMAKE}"
 }
 trap restore_root_cmake EXIT
 cp "${HISTORICAL_CMAKE}" "${PROJECT_ROOT}/CMakeLists.txt"
+
+# Disable the hwinfo battery component for iOS: its Apple implementation
+# includes a header unavailable in the iOS SDK.
+PROJECT_ROOT="${PROJECT_ROOT}" python3 - <<'HWINFO_IOS_PATCH'
+from pathlib import Path
+import os
+
+p = Path(os.environ["PROJECT_ROOT"]) / "externals/CMakeLists.txt"
+s = p.read_text()
+old = "# hwinfo\nset(HWINFO_STATIC ON)\nadd_subdirectory(hwinfo)"
+new = (
+    "# hwinfo\nset(HWINFO_STATIC ON)\n"
+    'if (CMAKE_SYSTEM_NAME STREQUAL "iOS")\n'
+    '    set(HWINFO_BATTERY OFF CACHE BOOL "Disable unsupported iOS battery telemetry" FORCE)\n'
+    "endif()\nadd_subdirectory(hwinfo)"
+)
+if s.count(old) != 1:
+    raise SystemExit("Expected hwinfo CMake block not found exactly once.")
+p.write_text(s.replace(old, new, 1))
+print("iOS hwinfo battery workaround applied.")
+HWINFO_IOS_PATCH
 
 # Initialize all direct and nested dependencies used by the core.
 git -C "${PROJECT_ROOT}" submodule update --init --recursive
@@ -123,6 +147,7 @@ cmake -S "${PROJECT_ROOT}" -B "${CORE_BUILD_DIR}" -G Ninja \
   -DENABLE_UPDATER=OFF \
   -DENABLE_BACHATA_RUNTIME=OFF \
   -DENABLE_SYSTEM_LIBRARIES=OFF \
+  -DHWINFO_BATTERY=OFF \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DALLOWS_ONESHOT_TIMERS_WITH_TIMEOUT_ZERO_EXITCODE=0 \
   -DIMGUI_FONT_EMBED_EXECUTABLE="${FONT_EMBED_EXECUTABLE}"
